@@ -295,6 +295,39 @@
     .duo-medallions{grid-template-columns:1fr;}
     .duo-stats{grid-template-columns:1fr;}
   }
+
+  /* ── Password Gate ── */
+  .pwd-gate{
+    max-width:380px;margin:80px auto;text-align:center;
+    background:var(--surface);border:1px solid var(--line);border-radius:18px;
+    padding:40px 28px;box-shadow:var(--shadow);
+  }
+  .pwd-gate h2{font-family:'Lora',serif;font-size:22px;color:var(--ink);margin:0 0 6px;}
+  .pwd-gate p{color:var(--ink-soft);font-size:13px;margin:0 0 24px;}
+  .pwd-input{
+    width:100%;padding:13px 16px;border-radius:12px;
+    border:1px solid var(--line);background:var(--surface-2);
+    color:var(--ink);font-family:'IBM Plex Mono',monospace;font-size:16px;
+    text-align:center;letter-spacing:.12em;margin-bottom:12px;
+    transition:border-color .15s;
+  }
+  .pwd-input:focus{outline:none;border-color:var(--teal);}
+  .pwd-input.shake{animation:shake .35s ease;}
+  .pwd-btn{
+    width:100%;padding:13px;border-radius:12px;border:none;
+    background:var(--teal);color:var(--check-mark);
+    font-family:'Inter',sans-serif;font-size:15px;font-weight:700;cursor:pointer;
+    transition:opacity .15s;
+  }
+  .pwd-btn:hover{opacity:0.88;}
+  .pwd-error{color:var(--rose);font-size:12px;margin-top:10px;font-family:'IBM Plex Mono',monospace;min-height:18px;}
+  @keyframes shake{
+    0%,100%{transform:translateX(0);}
+    20%{transform:translateX(-8px);}
+    40%{transform:translateX(8px);}
+    60%{transform:translateX(-5px);}
+    80%{transform:translateX(5px);}
+  }
 </style>
 </head>
 <body>
@@ -308,6 +341,14 @@
     </linearGradient>
   </defs>
 </svg>
+
+<div id="pwdGate" class="pwd-gate" style="display:none">
+  <h2>Daily Tracker 🔒</h2>
+  <p>Enter the access password to continue.</p>
+  <input class="pwd-input" type="password" id="pwdInput" placeholder="••••••••" autocomplete="off">
+  <button class="pwd-btn" id="pwdBtn">Unlock</button>
+  <div class="pwd-error" id="pwdError"></div>
+</div>
 
 <div class="wrap">
   <header class="top">
@@ -374,6 +415,7 @@ const API_URL    = "https://script.google.com/macros/s/AKfycbw3XGr6z7huaQgzHz6B2
 const API_SECRET = "drt-ibs-sam-2026";
 const USER_A_NAME = "Ibrahim";
 const USER_B_NAME = "Sameeha";
+const APP_PASSWORD = "ibs-sam-2026"; // change this to whatever you want
 
 /* ═══════════════════════════════════════════════
    ACTIVITIES
@@ -1239,8 +1281,48 @@ document.getElementById('datePicker').addEventListener('change', e => {
   loadWeek();
 });
 
-if(!configured()){
-  setSyncBadge('local', 'Backend not connected — open the file and paste your Apps Script URL');
+/* ═══════════════════════════════════════════════
+   PASSWORD GATE
+   ═══════════════════════════════════════════════ */
+function isAuthed(){
+  return sessionStorage.getItem('tracker:auth') === 'ok';
+}
+
+function launchApp(){
+  document.getElementById('pwdGate').style.display = 'none';
+  document.querySelector('.wrap').style.display    = 'block';
+  const r = localStorage.getItem('tracker:lastUser');
+  if(r === USER_A_NAME || r === USER_B_NAME) selectUser(r);
+  if(!configured()) setSyncBadge('local', 'Backend not connected — paste your Apps Script URL');
+}
+
+function submitPassword(){
+  const input = document.getElementById('pwdInput');
+  if(input.value === APP_PASSWORD){
+    sessionStorage.setItem('tracker:auth', 'ok');
+    launchApp();
+  } else {
+    document.getElementById('pwdError').textContent = 'Wrong password — try again';
+    input.value = '';
+    input.classList.remove('shake');
+    void input.offsetWidth;
+    input.classList.add('shake');
+    input.focus();
+  }
+}
+
+document.getElementById('pwdBtn').addEventListener('click', submitPassword);
+document.getElementById('pwdInput').addEventListener('keydown', e => {
+  if(e.key === 'Enter') submitPassword();
+});
+
+// Boot
+if(isAuthed()){
+  launchApp();
+} else {
+  document.querySelector('.wrap').style.display = 'none';
+  document.getElementById('pwdGate').style.display = 'block';
+  setTimeout(() => document.getElementById('pwdInput').focus(), 100);
 }
 </script>
 </body>
