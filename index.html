@@ -465,7 +465,7 @@
 /* ═══════════════════════════════════════════════
    CONFIG
    ═══════════════════════════════════════════════ */
-const API_URL     = "PASTE_YOUR_APPS_SCRIPT_URL_HERE";
+const API_URL     = "https://script.google.com/macros/s/AKfycbyjAOE8Zb6eO7rG974F8wdsnk9Ovy_yTr3RpmCWAPytl5KPkA8gJO2HrU6VScoKG4ZY/exec";
 const USER_A_NAME = "Ibrahim";
 const USER_B_NAME = "Sameeha";
 
@@ -532,6 +532,10 @@ function getLabel(actId, dateISO, fallback){
 const DAY_NAMES   = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const MAGHRIB_NOTE = 'Al-Waaqiyah · Al-Mulk · As-Sajdah · Al-Muzzammil';
+
+const TIME_ORDER = ['Before Fajr','Fajr','Morning','Midday','Asr','Maghrib','Isha','Evening','Night','Friday','1st of Month'];
+function timeOrderIndex(t){ const i = TIME_ORDER.indexOf(t); return i === -1 ? 998 : i; }
+function sortActivitiesByTime(acts){ return [...acts].sort((a,b) => timeOrderIndex(a.time) - timeOrderIndex(b.time)); }
 
 const DAILY_QUOTES = [
   { arabic:'إِنَّ مَعَ الْعُسْرِ يُسْرًا', english:'Indeed, with hardship comes ease.', ref:'Quran 94:6' },
@@ -986,10 +990,10 @@ function openEditModal(){
 
 function renderEditRows(acts){
   document.getElementById('editRows').innerHTML = acts.map((act, idx) => `
-    <div class="edit-row" data-idx="${idx}">
+    <div class="edit-row" data-idx="${idx}" data-id="${act.id || ''}">
       <input class="edit-icon-inp" type="text" value="${act.icon}" maxlength="2" placeholder="🌙">
-      <input type="text" value="${act.label}" placeholder="Activity name">
-      <input type="text" value="${act.time}" placeholder="Time">
+      <input type="text" value="${escapeHtml(act.label)}" placeholder="Activity name">
+      <input type="text" value="${escapeHtml(act.time)}" placeholder="Time">
       <select class="edit-cat-sel">
         <option value="worship"${act.cat==='worship'?' selected':''}>Worship</option>
         <option value="study"${act.cat==='study'?' selected':''}>Study</option>
@@ -1008,19 +1012,23 @@ function renderEditRows(acts){
 }
 
 function getCurrentEditedActivities(){
-  const defaults = getActivities(currentUser);
+  const defaults   = getActivities(currentUser);
+  const defsById   = Object.fromEntries(defaults.map(a => [a.id, a]));
   return Array.from(document.querySelectorAll('#editRows .edit-row')).map((row, idx) => {
     const inputs = row.querySelectorAll('input');
     const sel    = row.querySelector('select');
-    const id     = defaults[idx] ? defaults[idx].id : `${currentUser.toLowerCase()}_custom_${Date.now()}_${idx}`;
+    const rowId  = row.dataset.id;
+    const def    = rowId ? defsById[rowId] : null;
+    const id     = rowId || `${currentUser.toLowerCase()}_custom_${Date.now()}_${idx}`;
     return {
       id,
-      icon:       inputs[0].value || '⭐',
-      label:      inputs[1].value || 'Activity',
-      time:       inputs[2].value || '',
-      cat:        sel.value,
-      section:    defaults[idx] ? defaults[idx].section : false,
-      fridayOnly: sel.value === 'friday',
+      icon:           inputs[0].value || '⭐',
+      label:          inputs[1].value || 'Activity',
+      time:           inputs[2].value || '',
+      cat:            sel.value,
+      section:        def ? def.section : false,
+      fridayOnly:     sel.value === 'friday',
+      ...(def?.monthDay1Only ? { monthDay1Only: true } : {}),
     };
   });
 }
@@ -1031,7 +1039,8 @@ document.getElementById('editAddBtn').addEventListener('click', () => {
   renderEditRows(a);
 });
 document.getElementById('editSaveBtn').addEventListener('click', () => {
-  localStorage.setItem(`custom_activities:${currentUser}`, JSON.stringify(getCurrentEditedActivities()));
+  const sorted = sortActivitiesByTime(getCurrentEditedActivities());
+  localStorage.setItem(`custom_activities:${currentUser}`, JSON.stringify(sorted));
   document.getElementById('editModalOverlay').classList.add('hidden');
   render();
 });
@@ -1133,6 +1142,7 @@ async function toggleActivity(iso, activityId, dIdx, who){
     setSyncBadge('local', 'Saving…');
     try{
       await apiSaveDay(who, iso, [...set]);
+      Object.keys(apiCache).forEach(k => delete apiCache[k]);
       setSyncBadge('cloud', `Saved ✓ — ${USER_A_NAME} &amp; ${USER_B_NAME}`);
       setTimeout(() => setSyncBadge('cloud', `Synced — ${USER_A_NAME} &amp; ${USER_B_NAME}`), 2000);
     }catch(err){
