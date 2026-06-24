@@ -348,7 +348,55 @@
   #tableHost.daily .act-daily-row{width:100%;}
   #tableHost.daily .act-note{height:42px;min-height:unset;max-height:unset;width:100%;resize:none;}
 
+  /* ── Top row (header + sticky note) ── */
+  .top-row{display:flex;gap:20px;align-items:flex-start;margin-bottom:24px;}
+  .top-row header.top{flex:1;margin-bottom:0;}
+  .sticky-note{
+    flex:0 0 270px;
+    background:rgba(227,183,101,0.07);
+    border:1px solid rgba(227,183,101,0.22);
+    border-radius:14px;
+    padding:14px 16px 16px;
+    display:flex;flex-direction:column;gap:8px;
+    min-height:160px;
+  }
+  .sticky-note-head{
+    display:flex;align-items:center;gap:6px;
+  }
+  .sticky-note-label{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;
+    text-transform:uppercase;letter-spacing:.12em;color:var(--gold);font-weight:600;flex:1;
+  }
+  .sticky-note-date-lbl{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--ink-soft);
+  }
+  .sticky-note-saved{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--teal);
+    opacity:0;transition:opacity .3s;
+  }
+  .sticky-note-saved.show{opacity:1;}
+  .sticky-note-body{
+    flex:1;
+    background:transparent;
+    border:none;
+    outline:none;
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    font-size:13px;
+    line-height:1.65;
+    resize:none;
+    min-height:120px;
+    width:100%;
+    caret-color:var(--gold);
+  }
+  .sticky-note-body::placeholder{color:rgba(255,255,255,0.18);font-size:12.5px;line-height:1.6;}
+
   /* ── Mobile ──────────────────────────────── */
+  @media(max-width:760px){
+    .top-row{flex-direction:column;}
+    .sticky-note{flex:none;width:100%;min-height:90px;}
+    .sticky-note-body{min-height:60px;}
+  }
   @media(max-width:680px){
     .duo-medallions{grid-template-columns:1fr;}
     .duo-stats{grid-template-columns:1fr;}
@@ -445,10 +493,20 @@
 
 <div class="wrap">
   <div class="tester-banner" id="testerBanner" style="display:none">🧪 TESTER <span>— changes here won't affect the live site</span></div>
-  <header class="top">
-    <h1>Daily Tracker</h1>
-    <div class="syncbadge" id="syncBadge"><span class="dot local"></span> Connecting…</div>
-  </header>
+  <div class="top-row">
+    <header class="top">
+      <h1>Daily Tracker</h1>
+      <div class="syncbadge" id="syncBadge"><span class="dot local"></span> Connecting…</div>
+    </header>
+    <div class="sticky-note" id="stickyNote">
+      <div class="sticky-note-head">
+        <span class="sticky-note-label">Today's Plan</span>
+        <span class="sticky-note-date-lbl" id="stickyNoteDateLbl"></span>
+        <span class="sticky-note-saved" id="stickyNoteSaved">Saved</span>
+      </div>
+      <textarea class="sticky-note-body" id="stickyNoteBody" placeholder="Jot down your goals, reminders, or rough plan for the day…"></textarea>
+    </div>
+  </div>
 
   <div class="gate" id="loginGate" style="display:none">
     <h2>Daily Tracker 🔒</h2>
@@ -719,6 +777,23 @@ async function apiSaveDay(user, date, activities){
   if(json.code === 401){ handleUnauthorized(); throw new Error('Session expired'); }
   if(!json.ok) throw new Error(json.error || 'Save failed');
   return json;
+}
+
+async function apiGetNote(user, date){
+  try{
+    const url = `${API_URL}?action=getNote&user=${encodeURIComponent(user)}&date=${date}&token=${sessionToken}`;
+    const res  = await fetch(url);
+    if(!res.ok) return null;
+    const json = await res.json();
+    return json.ok ? (json.note || '') : null;
+  }catch(e){ return null; }
+}
+
+async function apiSaveNote(user, date, note){
+  try{
+    const url = `${API_URL}?action=saveNote&user=${encodeURIComponent(user)}&date=${date}&note=${encodeURIComponent(note)}&token=${sessionToken}`;
+    await fetch(url);
+  }catch(e){}
 }
 
 async function apiDeletePhoto(user, date){
@@ -1030,6 +1105,7 @@ function selectUser(name){
   document.getElementById('app').classList.add('visible');
   renderSwitcher();
   loadWeek();
+  loadStickyFromBackend(name);
 }
 
 /* ═══════════════════════════════════════════════
@@ -1577,6 +1653,49 @@ document.getElementById('datePicker').addEventListener('change', e => {
    BOOT
    ═══════════════════════════════════════════════ */
 if(IS_TESTER) document.getElementById('testerBanner').style.display = 'flex';
+
+/* ── Sticky note (daily plan) ────────────────────────────────────────────── */
+(function(){
+  function todayIso(){
+    const d = new Date();
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  }
+  const iso = todayIso();
+  const ta      = document.getElementById('stickyNoteBody');
+  const dateLbl = document.getElementById('stickyNoteDateLbl');
+  const savedEl = document.getElementById('stickyNoteSaved');
+  if(dateLbl) dateLbl.textContent = iso;
+
+  function localKey(){ return `${LS_NS}plan:${iso}`; }
+  function flashSaved(){ if(savedEl){ savedEl.classList.add('show'); setTimeout(()=>savedEl.classList.remove('show'), 1500); } }
+
+  // Load from localStorage immediately so there's no blank delay
+  if(ta){ try{ ta.value = localStorage.getItem(localKey()) || ''; }catch(e){} }
+
+  // Called by selectUser after login
+  window.loadStickyFromBackend = async function(user){
+    if(!ta) return;
+    const note = await apiGetNote(user, iso);
+    if(note !== null){
+      ta.value = note;
+      try{ if(note.trim()) localStorage.setItem(localKey(), note); else localStorage.removeItem(localKey()); }catch(e){}
+    }
+  };
+
+  if(!ta) return;
+  let saveTimer = null;
+  ta.addEventListener('input', ()=>{
+    clearTimeout(saveTimer);
+    const v = ta.value;
+    try{ if(v.trim()) localStorage.setItem(localKey(), v); else localStorage.removeItem(localKey()); }catch(e){}
+    saveTimer = setTimeout(async ()=>{
+      if(typeof currentUser !== 'undefined' && currentUser){
+        await apiSaveNote(currentUser, iso, v);
+        flashSaved();
+      }
+    }, 800);
+  });
+})();
 
 ;(function(){
   const tok  = sessionStorage.getItem('tracker:token');
