@@ -349,10 +349,11 @@
   #tableHost.daily .act-note{height:42px;min-height:unset;max-height:unset;width:100%;resize:none;}
 
   /* ── Top row (header + sticky note) ── */
-  .top-row{display:flex;gap:20px;align-items:flex-start;margin-bottom:24px;}
-  .top-row header.top{flex:1;margin-bottom:0;}
+  .top-row{position:relative;margin-bottom:24px;}
+  .top-row header.top{margin-bottom:0;}
   .sticky-note{
-    flex:0 0 270px;
+    position:absolute;right:0;top:0;
+    width:270px;
     background:rgba(227,183,101,0.07);
     border:1px solid rgba(227,183,101,0.22);
     border-radius:14px;
@@ -393,8 +394,7 @@
 
   /* ── Mobile ──────────────────────────────── */
   @media(max-width:760px){
-    .top-row{flex-direction:column;}
-    .sticky-note{flex:none;width:100%;min-height:90px;}
+    .sticky-note{position:static;width:100%;min-height:90px;margin-top:14px;}
     .sticky-note-body{min-height:60px;}
   }
   @media(max-width:680px){
