@@ -678,7 +678,7 @@ function sortActivitiesByTime(acts){ return [...acts].sort((a,b) => timeToMins(a
 
 const BUILTIN_CATS = ['worship','study','friday','other'];
 function getCustomCats(){ try{ return JSON.parse(localStorage.getItem(`${LS_NS}custom_categories`)||'[]'); }catch{ return []; } }
-function saveCustomCat(slug){ const c=getCustomCats(); if(!c.includes(slug)){ c.push(slug); localStorage.setItem(`${LS_NS}custom_categories`,JSON.stringify(c)); } }
+function saveCustomCat(slug){ const c=getCustomCats(); if(!c.includes(slug)){ c.push(slug); localStorage.setItem(`${LS_NS}custom_categories`,JSON.stringify(c)); apiSaveUserConfig(currentUser, null, c); } }
 function catCSSClass(cat){ return BUILTIN_CATS.includes(cat) ? cat : 'other'; }
 function buildCatOptions(currentCat){
   const all = [...BUILTIN_CATS, ...getCustomCats()];
@@ -747,12 +747,15 @@ const DAILY_QUOTES = [
    ═══════════════════════════════════════════════ */
 let weekOffset   = 0;
 let selectedDate = new Date();
-const saveDebounce = {};
+const saveDebounce  = {};
+const anoteDebounce = {};
 let todayISO     = formatISO(new Date());
 let currentUser  = null;
 let sessionToken = null;
 let weekDataA    = {};
 let weekDataB    = {};
+let weekAnotesA  = {};
+let weekAnotesB  = {};
 let usingCloud   = false;
 let viewMode     = 'daily';
 let lastAction   = null;
@@ -819,6 +822,30 @@ async function apiGetNote(user, date){
 async function apiSaveNote(user, date, note){
   try{
     const url = `${API_URL}?action=saveNote&user=${encodeURIComponent(user)}&date=${date}&note=${encodeURIComponent(note)}&token=${sessionToken}`;
+    await fetch(url);
+  }catch(e){}
+}
+
+async function apiGetUserConfig(user){
+  try{
+    const url = `${API_URL}?action=getUserConfig&user=${encodeURIComponent(user)}&token=${sessionToken}`;
+    const res = await fetch(url);
+    if(!res.ok) return null;
+    const json = await res.json();
+    return json.ok ? json : null;
+  }catch(e){ return null; }
+}
+async function apiSaveUserConfig(user, activities, categories){
+  try{
+    let url = `${API_URL}?action=saveUserConfig&user=${encodeURIComponent(user)}&token=${sessionToken}`;
+    if(activities != null) url += `&activities=${encodeURIComponent(JSON.stringify(activities))}`;
+    if(categories != null) url += `&categories=${encodeURIComponent(JSON.stringify(categories))}`;
+    await fetch(url);
+  }catch(e){}
+}
+async function apiSaveAnote(user, date, actId, text){
+  try{
+    const url = `${API_URL}?action=saveAnote&user=${encodeURIComponent(user)}&date=${date}&actId=${encodeURIComponent(actId)}&text=${encodeURIComponent(text)}&token=${sessionToken}`;
     await fetch(url);
   }catch(e){}
 }
@@ -1034,13 +1061,29 @@ function localSet(user, iso, arr){
   try{ localStorage.setItem(`${LS_NS}tracker:${user}:${iso}`, JSON.stringify(arr)); }catch(e){}
 }
 function localGetNote(user, iso, actId){
-  try{ return localStorage.getItem(`${LS_NS}anote:${user}:${iso}:${actId}`) || ''; }catch(e){ return ''; }
+  try{
+    const cache = user === USER_A_NAME ? weekAnotesA[iso] : weekAnotesB[iso];
+    if(cache && actId in cache) return cache[actId];
+    return localStorage.getItem(`${LS_NS}anote:${user}:${iso}:${actId}`) || '';
+  }catch(e){ return ''; }
 }
 function localSetNote(user, iso, actId, text){
   try{
     if(text) localStorage.setItem(`${LS_NS}anote:${user}:${iso}:${actId}`, text);
     else localStorage.removeItem(`${LS_NS}anote:${user}:${iso}:${actId}`);
   }catch(e){}
+  const cache = user === USER_A_NAME ? weekAnotesA : weekAnotesB;
+  if(!cache[iso]) cache[iso] = {};
+  if(text) cache[iso][actId] = text; else delete cache[iso][actId];
+  const _k = `${user}:${iso}:${actId}`;
+  clearTimeout(anoteDebounce[_k]);
+  anoteDebounce[_k] = setTimeout(() => apiSaveAnote(user, iso, actId, text), 500);
+}
+async function loadUserConfigFromBackend(user){
+  const cfg = await apiGetUserConfig(user);
+  if(!cfg) return;
+  if(cfg.activities) localStorage.setItem(`${LS_NS}custom_activities:${user}`, JSON.stringify(cfg.activities));
+  if(cfg.categories) localStorage.setItem(`${LS_NS}custom_categories`, JSON.stringify(cfg.categories));
 }
 
 /* ═══════════════════════════════════════════════
@@ -1138,6 +1181,7 @@ function selectUser(name){
   document.getElementById('app').classList.add('visible');
   document.getElementById('stickyNote').style.display = 'flex';
   renderSwitcher();
+  loadUserConfigFromBackend(name);
   loadWeek();
   loadStickyFromBackend(name, formatISO(selectedDate));
 }
@@ -1190,6 +1234,7 @@ function renderCustomCatChips(){
   chipsEl.querySelectorAll('button').forEach(btn => btn.addEventListener('click', () => {
     const saved = getCustomCats().filter(c => c !== btn.dataset.cat);
     localStorage.setItem(`${LS_NS}custom_categories`, JSON.stringify(saved));
+    apiSaveUserConfig(currentUser, null, saved);
     renderCustomCatChips();
     renderEditRows(getCurrentEditedActivities());
   }));
@@ -1314,6 +1359,7 @@ document.getElementById('editAddBtn').addEventListener('click', () => {
 document.getElementById('editSaveBtn').addEventListener('click', () => {
   const sorted = sortActivitiesByTime(getCurrentEditedActivities());
   localStorage.setItem(`${LS_NS}custom_activities:${currentUser}`, JSON.stringify(sorted));
+  apiSaveUserConfig(currentUser, sorted, null);
   document.getElementById('editModalOverlay').classList.add('hidden');
   render();
 });
@@ -1321,6 +1367,7 @@ document.getElementById('editResetBtn').addEventListener('click', () => {
   if(!confirm('Reset to default activities? Your custom list will be cleared.')) return;
   localStorage.removeItem(`${LS_NS}custom_activities:${currentUser}`);
   const defaults = currentUser === USER_A_NAME ? ACTIVITIES_IBRAHIM : ACTIVITIES_SAMEEHA;
+  apiSaveUserConfig(currentUser, defaults, null);
   renderEditRows(defaults);
 });
 document.getElementById('editCancelBtn').addEventListener('click', () =>
@@ -1339,12 +1386,17 @@ function setSyncBadge(kind, text){
 }
 
 function applyWeekData(dates, data){
+  weekAnotesA = {}; weekAnotesB = {};
   dates.forEach(d => {
     const iso = formatISO(d);
     weekDataA[iso] = new Set((data[USER_A_NAME]?.[iso]) || []);
     weekDataB[iso] = new Set((data[USER_B_NAME]?.[iso]) || []);
     localSet(USER_A_NAME, iso, [...weekDataA[iso]]);
     localSet(USER_B_NAME, iso, [...weekDataB[iso]]);
+    if(data.anotes){
+      weekAnotesA[iso] = data.anotes[USER_A_NAME]?.[iso] || {};
+      weekAnotesB[iso] = data.anotes[USER_B_NAME]?.[iso] || {};
+    }
   });
 }
 
