@@ -1873,14 +1873,17 @@ if(IS_TESTER) document.getElementById('testerBanner').style.display = 'flex';
   if(resizeElR && snEl){
     resizeElR.addEventListener('mousedown', e => {
       e.preventDefault();
-      const startX = e.clientX;
-      const startW = snEl.offsetWidth;
+      const startX  = e.clientX;
+      const startW  = snEl.offsetWidth;
+      const startR  = parseInt(getComputedStyle(snEl).right) || 0;
       resizeElR.classList.add('dragging');
       const onMoveR = mv => {
-        const newW = Math.min(
-          Math.max(startW + (mv.clientX - startX), 200),
-          snEl.parentElement.offsetWidth - 20
-        );
+        // drag left = right edge pulls left (shrink right); drag right = right edge pushes right (expand right)
+        const delta   = startX - mv.clientX;
+        const newRight = Math.max(0, startR + delta);
+        const actual  = newRight - startR;
+        const newW    = Math.max(200, startW - actual);
+        snEl.style.right = newRight + 'px';
         snEl.style.width = newW + 'px';
       };
       const onUpR = () => {
